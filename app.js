@@ -1,4 +1,4 @@
-(() => {
+(function() {
   const SVG_NS = "http://www.w3.org/2000/svg";
   const VIEWBOX = { width: 900, height: 700 };
   const MIN_HOOK_DISTANCE_PX = 38;
@@ -24,6 +24,7 @@
     placementHint: document.getElementById("placementHint"),
     sourceCanvas: document.getElementById("sourceCanvas"),
     pendantCanvas: document.getElementById("pendantCanvas"),
+    pendantGallery: document.getElementById("pendantGallery"),
     statusText: document.getElementById("statusText"),
     validationList: document.getElementById("validationList"),
     toast: document.getElementById("toast"),
@@ -36,13 +37,13 @@
     currentBag: "tote",
     hooks: [],
     selectedHookId: null,
-    attachedHookId: null,
     placementMode: false,
     uploadedImage: null,
     uploadedImageName: "",
     originalDataUrl: "",
-    generatedPendantDataUrl: "",
-    pendantBounds: null,
+    generatedPendants: [],
+    selectedPendantId: null,
+    keychains: [],
     lastToastTimer: null,
   };
 
@@ -211,12 +212,13 @@
       pendantCtx,
       elements.pendantCanvas,
       "Generated pendant",
-      "Run pendant generation"
+      "Click Generate pendant"
     );
     renderBag();
     renderHooks();
-    renderKeychain();
+    renderKeychains();
     renderValidationList();
+    renderPendantGallery();
     bindEvents();
     setStatus(DEFAULT_STATUS);
   }
@@ -226,17 +228,17 @@
     elements.generatePendantBtn.addEventListener("click", generatePendant);
     elements.addHookBtn.addEventListener("click", togglePlacementMode);
     elements.clearHooksBtn.addEventListener("click", clearHooks);
-    elements.attachPendantBtn.addEventListener("click", attachPendantToSelectedHook);
+    elements.attachPendantBtn.addEventListener("click", attachSelectedPendantToHook);
     elements.runTestsBtn.addEventListener("click", runBuiltInChecks);
     elements.scaleRange.addEventListener("input", () => {
-      renderKeychain();
-      if (state.generatedPendantDataUrl) {
+      renderKeychains();
+      if (state.generatedPendants.length > 0) {
         setStatus("Pendant size updated.");
       }
     });
     elements.thresholdRange.addEventListener("input", () => {
       if (state.uploadedImage) {
-        setStatus("Threshold updated. Generate again to refresh the pendant.");
+        setStatus("Threshold updated. Generate another pendant.");
       }
     });
 
@@ -254,16 +256,15 @@
       state.currentBag = nextBag;
       state.hooks = [];
       state.selectedHookId = null;
-      state.attachedHookId = null;
       state.placementMode = false;
 
       updateBagSelector();
       renderBag();
       renderHooks();
-      renderKeychain();
+      renderKeychains();
       updatePlacementModeUi();
-      setStatus(`${bagModels[nextBag].name} selected. Existing hooks were cleared.`);
-      showToast("Bag changed. Hooks were reset to prevent invalid placement.", "warning");
+      setStatus(`${bagModels[nextBag].name} selected.`);
+      showToast("Bag changed. Hooks were cleared.", "warning");
     });
 
     elements.bagSvg.addEventListener("click", (event) => {
@@ -302,9 +303,6 @@
         state.uploadedImage = image;
         state.uploadedImageName = file.name;
         state.originalDataUrl = reader.result;
-        state.generatedPendantDataUrl = "";
-        state.pendantBounds = null;
-        state.attachedHookId = null;
 
         drawImageContain(sourceCtx, elements.sourceCanvas, image);
         drawCanvasPlaceholder(
@@ -313,7 +311,7 @@
           "Generated pendant",
           "Click Generate pendant"
         );
-        renderKeychain();
+        renderKeychains();
         setStatus(`Loaded "${file.name}". Ready to generate a pendant.`);
         showToast("Image uploaded successfully.", "success");
       };
@@ -351,18 +349,6 @@
     }
 
     pendantCtx.clearRect(0, 0, elements.pendantCanvas.width, elements.pendantCanvas.height);
-    pendantCtx.save();
-    pendantCtx.fillStyle = "rgba(255,255,255,0.65)";
-    roundRectPathCanvas(
-      pendantCtx,
-      14,
-      14,
-      elements.pendantCanvas.width - 28,
-      elements.pendantCanvas.height - 28,
-      22
-    );
-    pendantCtx.fill();
-    pendantCtx.restore();
 
     const objectWidth = processed.bounds.width;
     const objectHeight = processed.bounds.height;
@@ -376,15 +362,22 @@
     const y = (elements.pendantCanvas.height - fit.height) / 2;
 
     pendantCtx.drawImage(processed.canvas, x, y, fit.width, fit.height);
-    pendantCtx.fillStyle = "#7b4f2f";
-    pendantCtx.font = "600 13px Inter, Segoe UI, Arial, sans-serif";
-    pendantCtx.fillText("Background removed preview", 16, elements.pendantCanvas.height - 16);
 
-    state.generatedPendantDataUrl = processed.canvas.toDataURL("image/png");
-    state.pendantBounds = processed.bounds;
-    renderKeychain();
-    setStatus("Pendant generated. Select a hook and attach the keychain.");
-    showToast("Pendant generated from the uploaded object.", "success");
+    const pendantDataUrl = processed.canvas.toDataURL("image/png");
+    const pendant = {
+      id: `pendant-${Date.now()}-${Math.round(Math.random() * 1000)}`,
+      dataUrl: pendantDataUrl,
+      bounds: processed.bounds,
+      timestamp: Date.now(),
+    };
+
+    state.generatedPendants.push(pendant);
+    state.selectedPendantId = pendant.id;
+
+    renderKeychains();
+    renderPendantGallery();
+    setStatus("Pendant generated. Select a hook and attach it.");
+    showToast(`Pendant ${state.generatedPendants.length} ready to attach.`, "success");
   }
 
   function buildPendantFromImage(image, threshold) {
@@ -531,7 +524,7 @@
     state.placementMode = false;
     updatePlacementModeUi();
     renderHooks();
-    renderKeychain();
+    renderKeychains();
     setStatus(`Hook added at (${Math.round(hook.x)}, ${Math.round(hook.y)}).`);
     showToast("Hook placed successfully.", "success");
   }
@@ -539,13 +532,13 @@
   function clearHooks() {
     state.hooks = [];
     state.selectedHookId = null;
-    state.attachedHookId = null;
+    state.keychains = [];
     state.placementMode = false;
     renderHooks();
-    renderKeychain();
+    renderKeychains();
     updatePlacementModeUi();
-    setStatus("All hooks cleared.");
-    showToast("Hooks removed from the bag.", "warning");
+    setStatus("All hooks and keychains cleared.");
+    showToast("Hooks and keychains removed.", "warning");
   }
 
   function selectHook(hookId) {
@@ -556,27 +549,75 @@
 
     state.selectedHookId = hookId;
     renderHooks();
-    renderKeychain();
+    renderKeychains();
     setStatus(`Hook selected at (${Math.round(hook.x)}, ${Math.round(hook.y)}).`);
   }
 
-  function attachPendantToSelectedHook() {
-    if (!state.generatedPendantDataUrl) {
-      showToast("Generate a pendant before attaching it.", "error");
-      setStatus("Attach blocked: no generated pendant available.");
+  function selectPendant(pendantId) {
+    state.selectedPendantId = PendantId;
+    renderPendantGallery();
+  }
+
+  function deletePendant(pendantId, event) {
+    event.stopPropagation();
+    state.generatedPendants = state.generatedPendants.filter(p => p.id !== pendantId);
+    state.keychains = state.keychains.filter(kc => kc.pendantId !== pendantId);
+    
+    if (state.selectedPendantId === pendantId) {
+      state.selectedPendantId = state.generatedPendants.length > 0 
+        ? state.generatedPendants[state.generatedPendants.length - 1].id 
+        : null;
+    }
+    
+    renderPendantGallery();
+    renderKeychains();
+    showToast("Pendant removed.", "warning");
+  }
+
+  function attachSelectedPendantToHook() {
+    if (!state.selectedPendantId) {
+      showToast("Generate a pendant first, then select it.", "error");
+      setStatus("Attach blocked: no pendant selected.");
       return;
     }
 
     if (!state.selectedHookId) {
-      showToast("Select a hook before attaching the keychain.", "error");
+      showToast("Select a hook first.", "error");
       setStatus("Attach blocked: no hook selected.");
       return;
     }
 
-    state.attachedHookId = state.selectedHookId;
-    renderKeychain();
-    setStatus("Keychain attached to the selected hook.");
-    showToast("Keychain attached.", "success");
+    const pendant = state.generatedPendants.find(p => p.id === state.selectedPendantId);
+    if (!pendant) {
+      showToast("Selected pendant not found.", "error");
+      return;
+    }
+
+    const hook = state.hooks.find(item => item.id === state.selectedHookId);
+    if (!hook) {
+      showToast("Selected hook not found.", "error");
+      return;
+    }
+
+    const existingKeychain = state.keychains.find(kc => kc.hookId === hook.id);
+    if (existingKeychain) {
+      showToast("Hook already has a keychain. Clear hooks to replace.", "error");
+      setStatus("This hook already has a keychain.");
+      return;
+    }
+
+    const keychain = {
+      id: `kc-${Date.now()}-${Math.round(Math.random() * 1000)}`,
+      hookId: hook.id,
+      pendantId: pendant.id,
+      pendantDataUrl: pendant.dataUrl,
+      size: Math.max(70, Math.min(180, Number(elements.scaleRange.value))),
+    };
+
+    state.keychains.push(keychain);
+    renderKeychains();
+    setStatus(`Keychain ${state.keychains.length} attached to hook at (${Math.round(hook.x)}, ${Math.round(hook.y)}).`);
+    showToast(`Keychain attached. Total: ${state.keychains.length}`, "success");
   }
 
   function renderBag() {
@@ -602,75 +643,84 @@
     elements.hookGroup.innerHTML = hookMarkup;
   }
 
-  function renderKeychain() {
-    if (!state.attachedHookId || !state.generatedPendantDataUrl) {
+  function renderKeychains() {
+    if (state.keychains.length === 0) {
       elements.keychainGroup.innerHTML = "";
       return;
     }
 
-    const hook = state.hooks.find((item) => item.id === state.attachedHookId);
-    if (!hook) {
-      state.attachedHookId = null;
-      elements.keychainGroup.innerHTML = "";
+    const keychainHtml = state.keychains.map(kc => {
+      const hook = state.hooks.find(h => h.id === kc.hookId);
+      if (!hook) return "";
+
+      const size = kc.size || 110;
+      const pendantWidth = size;
+      const pendantHeight = size * 0.92;
+      const sway = (hook.x - VIEWBOX.width / 2) * 0.04;
+      const chainTopY = hook.y + 10;
+      const ringY = hook.y + 24;
+      const pendantX = hook.x - pendantWidth / 2 + sway;
+      const pendantY = hook.y + 48;
+      const chainMidX = hook.x + sway * 0.45;
+      const clipId = `pendant-clip-${kc.id}`;
+
+      return `
+        <g class="keychain-item" data-keychain-id="${kc.id}">
+          <defs>
+            <clipPath id="${clipId}">
+              <rect
+                x="${pendantX + 4}"
+                y="${pendantY + 4}"
+                width="${pendantWidth - 8}"
+                height="${pendantHeight - 8}"
+                rx="${Math.max(16, pendantWidth * 0.16)}"
+                ry="${Math.max(16, pendantWidth * 0.16)}"
+              ></rect>
+            </clipPath>
+          </defs>
+
+          <path
+            class="keychain-chain"
+            d="M ${hook.x} ${chainTopY} C ${hook.x} ${ringY}, ${chainMidX} ${pendantY - 18}, ${hook.x + sway * 0.65} ${pendantY - 4}"
+          ></path>
+          <circle class="keychain-loop" cx="${hook.x}" cy="${ringY}" r="12"></circle>
+          <image
+            x="${pendantX + 4}"
+            y="${pendantY + 4}"
+            width="${pendantWidth - 8}"
+            height="${pendantHeight - 8}"
+            href="${kc.pendantDataUrl}"
+            preserveAspectRatio="xMidYMid meet"
+            clip-path="url(#${clipId})"
+          ></image>
+        </g>
+      `;
+    }).join("");
+
+    elements.keychainGroup.innerHTML = keychainHtml;
+  }
+
+  function renderPendantGallery() {
+    if (!elements.pendantGallery) return;
+    
+    if (state.generatedPendants.length === 0) {
+      elements.pendantGallery.innerHTML = `
+        <p class="gallery-empty">No pendants generated yet.</p>
+      `;
       return;
     }
 
-    const size = Math.max(70, Math.min(180, Number(elements.scaleRange.value)));
-    const pendantWidth = size;
-    const pendantHeight = size * 0.92;
-    const sway = (hook.x - VIEWBOX.width / 2) * 0.04;
-    const chainTopY = hook.y + 10;
-    const ringY = hook.y + 24;
-    const pendantX = hook.x - pendantWidth / 2 + sway;
-    const pendantY = hook.y + 72;
-    const chainMidX = hook.x + sway * 0.45;
-    const clipId = `pendant-clip-${hook.id}`;
-
-    elements.keychainGroup.innerHTML = `
-      <defs>
-        <clipPath id="${clipId}">
-          <rect
-            x="${pendantX + 6}"
-            y="${pendantY + 6}"
-            width="${pendantWidth - 12}"
-            height="${pendantHeight - 12}"
-            rx="${Math.max(18, pendantWidth * 0.18)}"
-            ry="${Math.max(18, pendantWidth * 0.18)}"
-          ></rect>
-        </clipPath>
-      </defs>
-
-      <path
-        class="keychain-chain"
-        d="M ${hook.x} ${chainTopY} C ${hook.x} ${ringY}, ${chainMidX} ${pendantY - 24}, ${hook.x + sway * 0.65} ${pendantY - 6}"
-      ></path>
-      <circle class="keychain-loop" cx="${hook.x}" cy="${ringY}" r="12"></circle>
-      <ellipse
-        class="keychain-pendant-shadow"
-        cx="${pendantX + pendantWidth / 2 + 2}"
-        cy="${pendantY + pendantHeight + 12}"
-        rx="${pendantWidth * 0.42}"
-        ry="${pendantHeight * 0.12}"
-      ></ellipse>
-      <rect
-        class="keychain-pendant-frame"
-        x="${pendantX}"
-        y="${pendantY}"
-        width="${pendantWidth}"
-        height="${pendantHeight}"
-        rx="${Math.max(22, pendantWidth * 0.2)}"
-        ry="${Math.max(22, pendantWidth * 0.2)}"
-      ></rect>
-      <image
-        x="${pendantX + 6}"
-        y="${pendantY + 6}"
-        width="${pendantWidth - 12}"
-        height="${pendantHeight - 12}"
-        href="${state.generatedPendantDataUrl}"
-        preserveAspectRatio="xMidYMid meet"
-        clip-path="url(#${clipId})"
-      ></image>
-    `;
+    elements.pendantGallery.innerHTML = state.generatedPendants.map(pendant => {
+      const isSelected = pendant.id === state.selectedPendantId;
+      return `
+        <div class="gallery-item ${isSelected ? 'is-selected' : ''}" 
+             data-pendant-id="${pendant.id}"
+             onclick="selectPendant('${pendant.id}')">
+          <img src="${pendant.dataUrl}" alt="Pendant" />
+          <button class="gallery-delete" onclick="deletePendant('${pendant.id}', event)">×</button>
+        </div>
+      `;
+    }).join("");
   }
 
   function updateBagSelector() {
@@ -689,7 +739,7 @@
 
     results.push({
       label: "Missing upload detection",
-      pass: canGeneratePendant(null) === false,
+      pass: !state.uploadedImage,
       details: "Generate action should fail without an uploaded image.",
     });
 
@@ -712,9 +762,9 @@
     });
 
     results.push({
-      label: "Attach without hook prevention",
-      pass: canAttachPendant("data:image/png;base64,test", null) === false,
-      details: "Attachment must require a selected hook.",
+      label: "Attach without pendant prevention",
+      pass: !state.selectedPendantId || !state.selectedHookId,
+      details: "Attachment must require both pendant and hook.",
     });
 
     renderValidationList(results);
@@ -744,14 +794,6 @@
         return `<li class="${className}">${symbol} ${result.label} — ${result.details}</li>`;
       })
       .join("");
-  }
-
-  function canGeneratePendant(image) {
-    return Boolean(image);
-  }
-
-  function canAttachPendant(pendantDataUrl, selectedHookId) {
-    return Boolean(pendantDataUrl && selectedHookId);
   }
 
   function canPlaceHook(existingHooks, point, bag) {
@@ -798,8 +840,6 @@
 
   function drawImageContain(ctx, canvas, image) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "#fffaf5";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const fit = containSize(image.width, image.height, canvas.width - 24, canvas.height - 24);
     const x = (canvas.width - fit.width) / 2;
@@ -810,8 +850,6 @@
 
   function drawCanvasPlaceholder(ctx, canvas, title, subtitle) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "#fffaf5";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     ctx.strokeStyle = "rgba(123,79,47,0.16)";
     ctx.lineWidth = 2;
@@ -948,4 +986,7 @@
     ctx.quadraticCurveTo(x, y, x + radius, y);
     ctx.closePath();
   }
+
+  window.selectPendant = selectPendant;
+  window.deletePendant = deletePendant;
 })();
