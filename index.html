@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Keychain Bag Simulator</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="hero">
+      <div class="hero__content">
+        <p class="eyebrow">Interactive keychain mockup studio</p>
+        <h1>Preview custom keychains on your bag before you make them</h1>
+        <p class="hero__description">
+          Upload an image, turn the main object into a pendant, choose a bag type,
+          place valid hooks, and compare multiple attached keychains in one scene.
+        </p>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="panel panel--controls">
+        <section class="panel-section">
+          <h2>1. Upload image</h2>
+          <label class="upload-card" for="imageUpload">
+            <input id="imageUpload" type="file" accept="image/*" />
+            <span class="upload-card__title">Drop or choose an image</span>
+            <span class="upload-card__hint">
+              Best result: centered subject with simple background
+            </span>
+          </label>
+
+          <div class="field-grid">
+            <label class="field">
+              <span>Background cleanup</span>
+              <input id="thresholdRange" type="range" min="10" max="120" value="42" />
+            </label>
+            <label class="field">
+              <span>Current pendant size</span>
+              <input id="scaleRange" type="range" min="60" max="180" value="110" />
+            </label>
+          </div>
+
+          <button id="generatePendantBtn" class="button button--primary" type="button">
+            Generate pendant
+          </button>
+        </section>
+
+        <section class="panel-section">
+          <h2>2. Choose bag type</h2>
+          <div class="bag-selector" id="bagSelector" role="radiogroup" aria-label="Bag types">
+            <button class="bag-chip is-active" type="button" data-bag="tote">Tote bag</button>
+            <button class="bag-chip" type="button" data-bag="backpack">Backpack</button>
+            <button class="bag-chip" type="button" data-bag="crossbody">Crossbody</button>
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <h2>3. Add hooks</h2>
+          <div class="action-group">
+            <button id="addHookBtn" class="button" type="button">Add hook</button>
+            <button id="clearHooksBtn" class="button button--ghost" type="button">Clear hooks</button>
+          </div>
+          <div class="constraints-card">
+            <h3>Placement rules</h3>
+            <ul>
+              <li>Hooks can only be placed inside the bag area</li>
+              <li>Hooks cannot overlap each other</li>
+              <li>Each hook must stay at least 1 cm away from another hook</li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <h2>4. Attach pendant</h2>
+          <button id="attachPendantBtn" class="button button--primary" type="button">
+            Attach current pendant
+          </button>
+          <p class="helper-text">
+            Generate a pendant, select a hook, then attach it. Existing attached keychains remain visible.
+          </p>
+        </section>
+
+        <section class="panel-section">
+          <h2>Validation</h2>
+          <ul class="status-list" id="validationList">
+            <li>Missing upload detection</li>
+            <li>Invalid bag click detection</li>
+            <li>Overlapping hook prevention</li>
+            <li>Minimum spacing enforcement</li>
+            <li>Attach without hook prevention</li>
+          </ul>
+          <button id="runTestsBtn" class="button button--ghost" type="button">
+            Run built-in checks
+          </button>
+        </section>
+      </aside>
+
+      <section class="panel panel--stage">
+        <div class="stage-toolbar">
+          <div>
+            <h2>Live simulation</h2>
+            <p id="statusText" class="status-text">Upload an image to start generating a pendant.</p>
+          </div>
+          <div class="legend">
+            <span><i class="legend__swatch legend__swatch--bag"></i> Bag area</span>
+            <span><i class="legend__swatch legend__swatch--hook"></i> Hook</span>
+            <span><i class="legend__swatch legend__swatch--selected"></i> Selected hook</span>
+          </div>
+        </div>
+
+        <div class="simulator">
+          <div id="bagStage" class="bag-stage" aria-label="Bag simulator canvas">
+            <svg id="bagSvg" class="bag-svg" viewBox="0 0 900 700" preserveAspectRatio="xMidYMid meet">
+              <defs>
+                <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+                  <feDropShadow dx="0" dy="14" stdDeviation="16" flood-opacity="0.18" />
+                </filter>
+              </defs>
+
+              <g id="bagGroup"></g>
+              <g id="hookGroup"></g>
+              <g id="keychainGroup"></g>
+              <path id="bagBoundaryOverlay" class="bag-boundary-overlay"></path>
+            </svg>
+
+            <div id="placementHint" class="placement-hint hidden">
+              Placement mode active — click a valid point on the bag.
+            </div>
+          </div>
+
+          <div class="preview-area">
+            <div class="preview-card">
+              <h3>Uploaded image</h3>
+              <canvas id="sourceCanvas" width="320" height="240"></canvas>
+            </div>
+            <div class="preview-card">
+              <h3>Current generated pendant</h3>
+              <canvas id="pendantCanvas" width="320" height="240"></canvas>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
